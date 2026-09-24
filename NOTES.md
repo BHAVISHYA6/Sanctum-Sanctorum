@@ -26,9 +26,20 @@ The Loans feature is complete for the behavior covered by `tests/test_loans.py`:
 - Returns calculate started-day late fees capped at the book price.
 - Member loan lists support computed-status filtering and ID ordering.
 
-The remaining application areas are not complete yet. The full suite still has failures in
-members, orders, member statistics, and reports. Those areas contain unfinished service
-and validation logic and should be implemented against `SPEC.md` before submission.
+The Members feature is complete for the behavior covered by `tests/test_members.py`:
+
+- 32 member tests pass.
+- Emails are stripped, lowercased, validated, and kept unique.
+- Duplicate emails return HTTP 409 with a rolled-back transaction.
+- Statistics count paid orders, active loans, overdue loans, and returned-loan fees.
+
+The Orders feature is complete for the behavior covered by `tests/test_orders.py`:
+
+- 46 order tests pass.
+- Validation, pricing, tier and bulk discounts, price snapshots, stock reservation, payment,
+  cancellation, and all-or-nothing stock checks are implemented.
+
+The remaining application areas are reports and final full-suite verification.
 
 ## Approach And Decisions
 
@@ -58,6 +69,8 @@ The focused Books and Loans suites were run with the repository virtual environm
 ```powershell
 .\\.venv\\Scripts\\python.exe -m pytest tests/test_books.py
 .\\.venv\\Scripts\\python.exe -m pytest tests/test_loans.py
+.\\.venv\\Scripts\\python.exe -m pytest tests/test_members.py
+.\\.venv\\Scripts\\python.exe -m pytest tests/test_orders.py
 ```
 
 Result:
@@ -65,6 +78,8 @@ Result:
 ```text
 67 passed, 2 warnings
 45 passed, 2 warnings
+32 passed, 2 warnings
+46 passed, 2 warnings
 ```
 
 The warnings came from dependency deprecations in the installed FastAPI/Starlette test stack.
@@ -72,12 +87,10 @@ The complete suite has not yet been rerun after the Books fixes.
 
 ## Remaining Work
 
-1. Complete member validation, duplicate handling, access rules, and statistics.
-2. Complete order creation, pricing, discounts, stock reservation, payment, and cancellation.
-3. Complete reports and verify cross-feature statistics.
-4. Run the complete test suite and address all remaining failures.
-5. Deploy the application and add the public URL at the top of this file.
-6. Commit each logical feature with a specific commit message and verify that generated files,
+1. Complete reports and verify cross-feature statistics.
+2. Run the complete test suite and address all remaining failures.
+3. Deploy the application and add the public URL at the top of this file.
+4. Commit each logical feature with a specific commit message and verify that generated files,
    local databases, virtual environments, and secrets are not committed.
 
 ## AI Usage

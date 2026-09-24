@@ -162,12 +162,57 @@ The focused loan suite now passes:
 45 passed, 2 warnings in 3.07s
 ```
 
-## 8. Remaining Work
+## 8. Member And Order Work Completed
+
+The initial `tests/test_members.py` run had these failures:
+
+- `test_email_is_stripped_and_lowercased`: `MemberCreate.normalize_email()` validated and returned
+	the raw value, so whitespace and uppercase letters were not normalized.
+- `test_duplicate_email_returns_409`: `create_member()` did not handle the database uniqueness
+	error, so the `IntegrityError` escaped instead of becoming HTTP 409.
+- `test_duplicate_email_is_case_insensitive`: raw email storage allowed differently cased values
+	to bypass the unique constraint.
+- The member statistics tests failed because `get_member_stats()` raised `NotImplementedError`.
+- `test_order_stats_count_only_paid_orders` also depended on `create_order()`, which returned 501.
+
+The previous email code in `app/schemas.py` was:
+
+```python
+if not EMAIL_PATTERN.match(value):
+		raise ValueError("email is not valid")
+return value
+```
+
+It was replaced with normalization before validation:
+
+```python
+normalized = value.strip().lower()
+if not EMAIL_PATTERN.fullmatch(normalized):
+		raise ValueError("email is not valid")
+return normalized
+```
+
+The previous member creation code in `app/services/members.py` committed directly. It now catches
+`IntegrityError`, rolls back the failed transaction, and returns HTTP 409 for duplicate emails.
+`get_member_stats()` now verifies the member, counts only paid orders, sums paid totals, counts
+unreturned and overdue loans using the strict `now > due_at` rule, and sums fees from returned loans.
+
+The order dependency was fixed in `app/schemas.py` and `app/services/orders.py`. Empty or duplicate
+items now return 422; member and book checks happen before mutation; restricted access is checked
+before stock; all stock is checked before any decrement; discounts and price snapshots are stored;
+and cancellation restores reserved stock.
+
+Focused validation now passes:
+
+```text
+46 passed, 2 warnings in 1.89s  # tests/test_orders.py
+32 passed, 2 warnings in 0.90s  # tests/test_members.py
+```
+
+## 9. Remaining Work
 
 The full assignment is not complete yet. Based on the earlier test output, the next implementation areas are:
 
-- Members: email normalization, duplicate handling, access rules, and statistics
-- Orders: validation, pricing, discounts, stock reservation, payment, and cancellation
 - Reports: paid-order aggregation and top-book reporting
 - Cross-feature member statistics
 

@@ -4,9 +4,10 @@ from typing import List
 
 from fastapi import HTTPException
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.models import Member, MemberTier, Order
+from app.models import Loan, Member, MemberTier, Order, OrderStatus
 from app.schemas import MemberCreate, MemberStats
 
 # Tiers from lowest to highest; a member's rank is their index in this list.
@@ -39,10 +40,13 @@ def create_member(db: Session, data: MemberCreate, now: datetime) -> Member:
 
     Rules: email (already stripped + lowercased) must be unique -> 409; created_at = now.
     """
-    # TODO: reject an email that is already in use with 409
     member = Member(name=data.name, email=data.email, tier=data.tier.value, created_at=now)
     db.add(member)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Email already exists")
     db.refresh(member)
     return member
 
@@ -71,4 +75,22 @@ def get_member_stats(db: Session, member_id: int, now: datetime) -> MemberStats:
     - overdue_loans counts unreturned loans with now > due_at.
     - late_fees_cents sums late fees of returned loans.
     """
-    raise NotImplementedError("get_member_stats")
+    get_member(db, member_id)
+
+    orders = db.scalars(
+        select(Order).where(Order.member_id == member_id, Order.status == OrderStatus.PAID.value)
+    ).all()
+    loans = db.scalars(select(Loan).where(Loan.member_id == member_id)).all()
+
+    active_loans = [loan for loan in loans if loan.returned_at is None]
+    overdue_loans = [loan for loan in active_loans if now > loan.due_at]
+    late_fees_cents = sum(loan.late_fee_cents for loan in loans if loan.returned_at is not None)
+
+    return MemberStats(
+        member_id=member_id,
+        orders_paid=len(orders),
+        total_spent_cents=sum(order.total_cents for order in orders),
+        active_loans=len(active_loans),
+        overdue_loans=len(overdue_loans),
+        late_fees_cents=late_fees_cents,
+    )
