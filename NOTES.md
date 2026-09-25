@@ -39,7 +39,15 @@ The Orders feature is complete for the behavior covered by `tests/test_orders.py
 - Validation, pricing, tier and bulk discounts, price snapshots, stock reservation, payment,
   cancellation, and all-or-nothing stock checks are implemented.
 
-The remaining application areas are reports and final full-suite verification.
+The Reports feature is complete for the behavior covered by `tests/test_reports.py`:
+
+- 11 report tests pass.
+- Top-book results aggregate quantities from paid orders only.
+- Books with only pending or cancelled orders are excluded.
+- Results use the current book title, sort by copies sold descending and title ascending, and
+    respect the validated limit range of 1 to 50.
+
+The remaining work is final full-suite verification and deployment.
 
 ## Approach And Decisions
 
@@ -71,6 +79,7 @@ The focused Books and Loans suites were run with the repository virtual environm
 .\\.venv\\Scripts\\python.exe -m pytest tests/test_loans.py
 .\\.venv\\Scripts\\python.exe -m pytest tests/test_members.py
 .\\.venv\\Scripts\\python.exe -m pytest tests/test_orders.py
+.\\.venv\\Scripts\\python.exe -m pytest tests/test_reports.py
 ```
 
 Result:
@@ -80,6 +89,7 @@ Result:
 45 passed, 2 warnings
 32 passed, 2 warnings
 46 passed, 2 warnings
+11 passed, 2 warnings
 ```
 
 The warnings came from dependency deprecations in the installed FastAPI/Starlette test stack.

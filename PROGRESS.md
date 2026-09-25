@@ -228,3 +228,56 @@ The assignment also expects:
 - A deployed public URL
 - No committed `.venv`, database files, caches, or secrets
 - A final update to `NOTES.md` with deployment and final test results
+
+## 10. Reports Work Completed
+
+The report test file was `tests/test_reports.py`. The report router already had the correct
+endpoint and validation:
+
+```python
+@router.get("/top-books", response_model=List[TopBook])
+def top_books(limit: int = Query(5, ge=1, le=50), db: Session = Depends(get_db)):
+	return service.top_books(db, limit)
+```
+
+Therefore, the `limit=0` and `limit=51` tests were not code failures in the service; FastAPI's
+`Query(5, ge=1, le=50)` correctly returns 422 for those values.
+
+The failing report cases were caused by the previous code in `app/services/reports.py`:
+
+```python
+def top_books(db: Session, limit: int = 5) -> List[TopBook]:
+	raise NotImplementedError("top_books")
+```
+
+This caused HTTP 501 for empty reports, paid-order aggregation, unpaid-order exclusion, sorting,
+and limit tests.
+
+The replacement code now builds a SQLAlchemy aggregation query:
+
+```python
+copies_sold = func.sum(OrderItem.quantity).label("copies_sold")
+rows = db.execute(
+	select(Book.id, Book.title, copies_sold)
+	.join(OrderItem, OrderItem.book_id == Book.id)
+	.join(Order, Order.id == OrderItem.order_id)
+	.where(Order.status == OrderStatus.PAID.value)
+	.group_by(Book.id, Book.title)
+	.order_by(copies_sold.desc(), Book.title.asc())
+	.limit(limit)
+).all()
+```
+
+The result rows are converted into `TopBook` schema objects. This approach:
+
+- Aggregates quantities across paid orders only.
+- Omits books with no paid sales naturally because the query starts from order items.
+- Uses the book's current title from the `books` table.
+- Sorts by copies sold descending and title ascending.
+- Applies the requested limit in the database query.
+
+Validation result:
+
+```text
+11 passed, 2 warnings in 0.52s  # tests/test_reports.py
+```
