@@ -7,3 +7,6 @@ __pycache__/
 .DS_Store
 .ruff_cache/
 .Learnings.md
+.repos.txt
+.respons.txt
+
