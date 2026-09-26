@@ -1,0 +1,36 @@
+PRE-DEPLOYMENT: READY
+
+Final pre-deployment checks:
+
+1. .env ignored by Git and not tracked: PASS
+2. .env.example exists and contains no secrets: PASS
+3. sanctum.db, .venv, and __pycache__ ignored: PASS
+4. No credential-pattern matches in tracked files: PASS
+5. Complete test suite: PASS
+   Result: 202 passed, 2 warnings
+6. FastAPI startup with configured PostgreSQL: PASS
+7. /health: PASS
+   Response: {"status":"ok"}
+8. Frontend at /: PASS
+   HTTP 200 and Sanctum Sanctorum frontend title detected.
+9. /docs: PASS
+   HTTP 200 and Swagger content detected.
+10. Render readiness: PASS
+
+Render deployment can use the existing project without application code changes:
+
+Build command:
+    uv sync --frozen --no-dev
+
+Start command:
+    uv run uvicorn app.main:app --host 0.0.0.0 --port $PORT
+
+Required private environment variable:
+    SANCTUM_DATABASE_URL
+
+The application already provides app.main:app, serves the frontend from /, creates tables during startup, seeds the database, and includes the psycopg PostgreSQL dependency.
+
+One repository hygiene change was required and made:
+- Added .env to .gitignore.
+
+No deployment was performed.

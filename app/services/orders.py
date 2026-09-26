@@ -51,8 +51,15 @@ def create_order(db: Session, data: OrderCreate, now: datetime) -> Order:
     if any(book.restricted for _, book in books):
         ensure_can_access_restricted(member)
 
-    if any(book.stock < item.quantity for item, book in books):
-        raise HTTPException(status_code=409, detail="Insufficient stock")
+    for item, book in books:
+        if book.stock < item.quantity:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Insufficient stock for '{book.title}'. "
+                    f"Requested {item.quantity} copies, but only {book.stock} are available."
+                ),
+            )
 
     total_quantity = sum(item.quantity for item, _ in books)
     subtotal = sum(book.price_cents * item.quantity for item, book in books)
