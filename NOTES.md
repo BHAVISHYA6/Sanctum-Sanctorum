@@ -1,114 +1,246 @@
-deploy link : https://sanctum-sanctorum-m0d8.onrender.com/
-# Sanctum Sanctorum Bookstore Notes
+# Sanctum Sanctorum Bookstore — Notes
 
-## Status
+## Live Deployment
 
-No public deployment is available yet. The application is currently being completed and
-validated locally.
+Production URL: https://sanctum-sanctorum-gilt.vercel.app/
 
-The Books feature is complete for the behavior covered by `tests/test_books.py`:
+A few useful links:
 
-- 67 book tests pass.
-- ISBN-13 input is normalized by removing hyphens and spaces.
-- ISBN-13 check digits are validated before persistence.
-- Duplicate ISBNs return HTTP 409 instead of leaking a database integrity error.
-- Book updates support partial PATCH requests while ignoring ISBN changes.
-- Book updates validate fields, trim text, persist changes, and return 404 for missing books.
-- Book listing supports title/author search, restricted filtering, inclusive price ranges,
-  sorting with ID tie-breakers, and pagination totals calculated before pagination.
+- Frontend: https://sanctum-sanctorum-gilt.vercel.app/
+- Health check: https://sanctum-sanctorum-gilt.vercel.app/health
+- API docs: https://sanctum-sanctorum-gilt.vercel.app/docs
 
-The Loans feature is complete for the behavior covered by `tests/test_loans.py`:
+It's deployed on Vercel using their current FastAPI support, which picks up `app.main:app`
+directly — no `api/index.py` or legacy routing config needed. Production data lives in
+PostgreSQL, wired up through the private `SANCTUM_DATABASE_URL` env var. Locally I've kept
+SQLite as the default for dev and testing.
 
-- 45 loan tests pass.
-- Loan fields include due dates, return timestamps, and persisted late fees.
-- Borrowing enforces access, overdue, duplicate-book, tier-limit, and stock rules.
-- Borrowing and returning update stock with the loan change in one transaction.
-- Loan status is computed at read time with the strict due-date boundary from the spec.
-- Returns calculate started-day late fees capped at the book price.
-- Member loan lists support computed-status filtering and ID ordering.
+Once the database is seeded, you can pick a demo member from the Members tab and try out the
+different restricted-book behaviors across the four tiers (Supreme, Master, Adept, Apprentice).
+Worth repeating: this member selector is just a stand-in for the take-home — it's not a real
+auth system.
 
-The Members feature is complete for the behavior covered by `tests/test_members.py`:
+## What's Done
 
-- 32 member tests pass.
-- Emails are stripped, lowercased, validated, and kept unique.
-- Duplicate emails return HTTP 409 with a rolled-back transaction.
-- Statistics count paid orders, active loans, overdue loans, and returned-loan fees.
+Here's what's actually built and passing:
 
-The Orders feature is complete for the behavior covered by `tests/test_orders.py`:
+**Books**
+- Creation with full request/response validation
+- Title/author trimming and length checks
+- ISBN-13 normalization, shape checks, and checksum validation
+- Duplicate ISBNs return a 409 instead of silently failing
+- Retrieval and partial updates via PATCH
+- Case-insensitive search on title/author
+- Price filters (inclusive and restricted)
+- Sorting by title/price with deterministic tie-breaking on ID
+- Pagination, with totals computed before limit/offset are applied
 
-- 46 order tests pass.
-- Validation, pricing, tier and bulk discounts, price snapshots, stock reservation, payment,
-  cancellation, and all-or-nothing stock checks are implemented.
+**Members**
+- Creation and retrieval
+- Name trimming/validation
+- Email trimming, lowercasing, format validation, duplicate handling
+- Tier validation
+- Order history per member
+- Stats: paid orders, total spend, active loans, overdue loans, late fees
 
-The Reports feature is complete for the behavior covered by `tests/test_reports.py`:
+**Orders**
+- Rejects empty item lists, bad quantities, duplicate books in one order
+- Checks member/book existence and restricted-book access before anything else
+- All-or-nothing stock validation — no partial mutation on failure
+- Tier and bulk discounts calculated in integer cents (no float drift)
+- Price snapshotting and stock reservation at creation time
+- Full pending → paid → cancelled lifecycle
+- Stock gets restored if a pending order is cancelled
 
-- 11 report tests pass.
-- Top-book results aggregate quantities from paid orders only.
-- Books with only pending or cancelled orders are excluded.
-- Results use the current book title, sort by copies sold descending and title ascending, and
-    respect the validated limit range of 1 to 50.
+**Loans**
+- Tracks due date, return date, and late fee
+- Enforces restricted-book access and per-tier loan limits
+- Handles overdue rules and blocks duplicate active loans on the same book
+- Stock decrements on borrow, restores on return
+- Status (active/overdue/returned) is computed, not stored
+- Strict boundary: a loan due exactly *now* still counts as active
+- Late fees are day-based, capped at the book's price at return time
 
-The remaining work is final full-suite verification and deployment.
+**Reports & platform**
+- Top-books report, built only from paid orders, with quantity aggregation and validated limits
+- `/health` and `/docs` endpoints
+- Static frontend served from `/`
+- PostgreSQL support via `SANCTUM_DATABASE_URL`, handling both `postgres://` and `postgresql://`
+- No existing tests were touched
 
-## Approach And Decisions
-
-The existing project separates HTTP transport from business logic:
-
-- Routers define endpoints, request parameters, response models, and status codes.
-- Services perform database access, filtering, sorting, updates, and business rules.
-- Pydantic schemas perform request validation and normalization before service code runs.
-- SQLAlchemy models remain the persistence representation.
-
-For the Books work, the router was kept thin. The PATCH route only accepts the validated
-`BookUpdate` schema and delegates to the book service. ISBN validation remains in the schema,
-while duplicate detection and database updates remain in the service layer.
-
-Book listing builds one filtered SQL query, applies sorting before pagination, and calculates
-`total` from the filtered query before applying `limit` and `offset`. This preserves the API
-contract for searches and pagination and avoids counting only the returned page.
-
-Duplicate ISBN persistence errors are caught in the service, the transaction is rolled back,
-and the client receives a stable HTTP 409 response. The rollback is important because failed
-writes must not leave the SQLAlchemy session in a broken transaction state.
-
-## Validation
-
-The focused Books and Loans suites were run with the repository virtual environment:
-
-```powershell
-.\\.venv\\Scripts\\python.exe -m pytest tests/test_books.py
-.\\.venv\\Scripts\\python.exe -m pytest tests/test_loans.py
-.\\.venv\\Scripts\\python.exe -m pytest tests/test_members.py
-.\\.venv\\Scripts\\python.exe -m pytest tests/test_orders.py
-.\\.venv\\Scripts\\python.exe -m pytest tests/test_reports.py
-```
-
-Result:
+Full suite result:
 
 ```text
-67 passed, 2 warnings
-45 passed, 2 warnings
-32 passed, 2 warnings
-46 passed, 2 warnings
-11 passed, 2 warnings
+202 passed, 2 warnings
 ```
 
-The warnings came from dependency deprecations in the installed FastAPI/Starlette test stack.
-The complete suite has not yet been rerun after the Books fixes.
+Both warnings are just deprecation notices from the FastAPI/Starlette test stack itself —
+nothing in the application is failing. As of this write-up, I don't have any tests actually
+failing; everything in the supplied acceptance suite is green.
 
-## Remaining Work
+## Test Cases I'd Still Want to Add
 
-1. Complete reports and verify cross-feature statistics.
-2. Run the complete test suite and address all remaining failures.
-3. Deploy the application and add the public URL at the top of this file.
-4. Commit each logical feature with a specific commit message and verify that generated files,
-   local databases, virtual environments, and secrets are not committed.
+These go beyond what the supplied test suite requires, but I think they'd matter a lot before
+calling this production-ready. I'm splitting them into "things that are basically un-tested
+gaps in coverage" versus "known, accepted limitations" — see the note at the bottom on the last
+category.
+
+**Auth and identity**
+- Anonymous users shouldn't see or be able to use book create/edit controls
+- `POST /books` and `PATCH /books/{id}` should reject requests without a real, server-verified
+  staff role
+- A regular member shouldn't be able to trigger staff-only catalog changes
+- Editing the `localStorage` member ID shouldn't let someone hijack another identity
+- A failed member lookup shouldn't leave the UI still "acting as" an unverified ID
+- A member shouldn't be able to read another member's orders, loans, or stats
+
+**Email policy**
+- Decide (and document) whether something like `b@m.com` is meant to be valid
+- If a stricter policy is wanted: test short local parts, short domains, malformed domain
+  labels, consecutive dots, and internationalized addresses under whatever policy gets chosen
+- Keep the existing trimming/lowercasing normalization tests either way
+
+**Inventory and transactions**
+- Two concurrent orders for the last copy shouldn't both succeed
+- A DB error mid-order-creation should roll back every stock change and the order row, not leave
+  things half-applied
+- Same idea for loan creation — a DB error should roll back both the loan and the stock
+  decrement together
+- Same for returns — roll back the return and the stock increment together
+- Cancelling an order whose book was later deleted needs an explicit, defined policy rather than
+  quietly skipping stock restoration
+
+**Deployment and lifecycle**
+- Two simultaneous cold starts shouldn't seed duplicate data
+- A PostgreSQL connection failure should produce a clear health/startup error, not a silent hang
+- Static assets and API routes should both work cleanly from a fresh browser session
+- Preview and production deployments should each be pointed at the right `SANCTUM_DATABASE_URL`
+
+A couple of these overlap with known, accepted limitations rather than bugs — specifically the
+concurrent last-copy race and the lack of a paginated `GET /members` endpoint. Both are
+explicitly optional per `ASSIGNMENT.md`, so I didn't build them, but I've kept them here since
+they're exactly the kind of thing the test list above would catch if priorities shift.
+
+The app also doesn't do real user authentication or staff authorization anywhere. The assignment
+works off a client-selected member ID and never defines passwords, sessions, tokens, or roles —
+so for anything resembling a real product, book creation/editing and member actions would need
+proper server-side auth rather than trusting whatever ID the client sends.
+
+## Things I Noticed While Reviewing
+
+These aren't required-feature gaps — they're product/security observations from poking at the
+running frontend and API.
+
+**Edit / Add book controls show up before sign-in.** The catalog renders these without checking
+for a selected member, and the API has no auth or role dependency behind them either. So right
+now, anyone can edit price/stock or add books straight from the UI, or by hitting the endpoints
+directly.
+*Scope:* beyond the assignment — `SPEC.md` defines the book endpoints but says nothing about
+login or staff roles.
+*Fix:* for the demo, just hide/disable these controls until a member is selected. For anything
+real, add server-side auth and require a staff role on both `POST /books` and
+`PATCH /books/{id}` — hiding UI elements alone isn't a security boundary.
+
+**Member selection isn't real authentication.** The frontend stores a member ID in
+`localStorage` and sends it along with orders/loans. The API trusts whatever ID shows up, so
+anyone can act as another member just by changing it.
+*Scope:* beyond the assignment — the contract is explicitly ID-based with no session/token
+concept.
+*Fix:* add a server-issued session or token, resolve the member from that instead of a raw
+client-supplied ID.
+
+**Member verification fails open on server errors.** If the member lookup call errors out, the
+frontend can end up continuing on as if that ID were valid anyway — not great, even though the
+backend would likely reject the request downstream.
+*Scope:* resilience/hardening issue, beyond the assignment.
+*Fix:* fail closed — clear member state and require a successful lookup before allowing any
+member action.
+
+**`b@m.com` passes validation, and that's intentional.** The validator follows `SPEC.md`'s exact
+regex (`^[^@\s]+@[^@\s]+\.[^@\s]+$`), which does let this through. Not a bug against the spec as
+written — just worth flagging if the product wants tighter rules later.
+*Scope:* out of scope unless stricter validation gets explicitly requested.
+*Fix:* nail down the desired policy first, write tests for it, then change the validator on
+purpose rather than quietly tightening it and risking a contract break.
+
+**Last-copy race condition.** Order creation checks stock and decrements it in separate ORM
+calls with no row locking, so two simultaneous requests could both think they got the last copy.
+*Scope:* explicitly optional per `ASSIGNMENT.md`.
+*Fix:* PostgreSQL row locking, or an atomic conditional update that checks the affected row
+count.
+
+## Architecture and Design Choices
+
+Kept to the layered structure the assignment asked for:
+
+- Routers handle HTTP concerns — input parsing, dependencies, response models, status codes
+- Pydantic schemas own shape, normalization, and field-level validation
+- Services hold the business rules, queries, transaction boundaries, and domain errors
+- SQLAlchemy models represent persisted state and relationships
+- The frontend calls the API with same-origin relative paths, so the static UI and the API ship
+  together without needing a separate frontend service
+
+A few decisions worth explaining:
+
+1. **Validation lives in schemas, integrity handling lives in services.** ISBN and email
+   normalization happen up front. The database's uniqueness constraints are still the final
+   safety net — expected `IntegrityError`s get caught, rolled back, and turned into stable 409s.
+
+2. **Orders are all-or-nothing.** Every member/book/access/stock check happens before any stock
+   or order data actually changes. Stock reservation and order-item creation commit together, so
+   a multi-book order can't fail halfway through and leave inventory in a weird state.
+
+3. **Order prices are snapshotted at purchase time.** Later catalog price changes don't
+   retroactively change what an existing order shows as its total.
+
+4. **Loan status is computed, not stored.** Whether a loan is active/overdue/returned depends on
+   the current time, so it's calculated on read. Keeps things from going stale and preserves the
+   strict `now > due_at` rule.
+
+5. **Reports use SQL aggregation.** The top-books report groups paid order items directly in the
+   database and joins in the current title — keeps the query lean and naturally leaves out books
+   with zero paid sales.
+
+6. **Startup init is intentionally simple.** `Base.metadata.create_all()` plus seed data runs on
+   startup since the assignment doesn't call for migrations. A real production version would
+   want migrations and an idempotent seed process instead.
+
+7. **Synchronous SQLAlchemy, on purpose.** The spec calls for sync SQLAlchemy 2.x, so I stuck
+   with that rather than pulling in an async stack for no real benefit here.
+
+## Spec Decisions and Trade-offs
+
+- Email validation follows `SPEC.md`'s regex exactly, which is why something like `b@m.com`
+  passes. Tightening this would be a deliberate contract change with its own tests, not a
+  silent tweak.
+- CORS is wide open (`*`) because that's part of the fixed API contract.
+- No `api/index.py` or legacy Vercel routing — current Vercel FastAPI discovery works fine with
+  `app/main.py` and a plain `app` instance.
+- SQLite stays for local tests; production uses PostgreSQL since serverless local disk isn't
+  persistent or shared.
+- Concurrent last-copy protection remains a known, optional gap — row locking or an atomic
+  conditional update would be the next step if it's prioritized.
+- There's no authentication contract in the assignment at all. The member selector works fine
+  for the demo but shouldn't be mistaken for real login in an actual product.
+
+## Git and Submission
+
+Commits are broken up by feature area — book validation, loan lifecycle, members/orders,
+reports, PostgreSQL support, deployment. Generated files, secrets, the local DB, and the venv
+are all gitignored.
+
+Checked the public deployment at `/`, `/health`, and `/docs`. Ran the full local suite from the
+repo's own virtualenv — 202 passed.
 
 ## AI Usage
 
-GitHub Copilot was used to inspect the assignment, tests, and nearby implementation code; identify
-which book behaviors were incomplete; suggest focused changes; and help interpret test failures.
-The changes were reviewed against the tests and the local project structure rather than accepted
-blindly. Copilot also initially suggested commands that could not run in the active terminal
-because of working-directory and environment differences; the repository virtual environment was
-then located and used directly for validation.
+Used GitHub Copilot to help read through the assignment, spec, and tests; spot incomplete
+behavior; suggest fixes; make sense of test failures; sanity-check the architecture; and help
+draft deployment/submission notes.
+
+Everything it suggested got checked against the actual source and tests rather than taken at
+face value. One place it wasn't helpful: it initially assumed commands could be run from the
+parent workspace directory and that `uv` was available in the active PowerShell session — neither
+was true, so I just used the repo's existing `.venv` and the correct working directory directly.
+Final calls — like the all-or-nothing order updates and the strict loan due-date boundary — were
+checked against the spec myself rather than taken from the AI's suggestions as-is.

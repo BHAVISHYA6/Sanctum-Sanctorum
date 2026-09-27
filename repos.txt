@@ -1,471 +1,74 @@
-Sanctum Sanctorum Requirements and Architecture Audit
-
-Inspection scope
-
-Source-of-truth documents reviewed:
-
-- ASSIGNMENT.md
-- INSTRUCTIONS.md
-- SPEC.md
-- README.md
-- tests/
-
-Implementation reviewed:
-
-- app/models.py
-- app/schemas.py
-- app/db.py
-- app/main.py
-- app/seed.py
-- app/routers/
-- app/services/
-- frontend/
-
-No application code, tests, deployment configuration, or business logic was modified during this audit. This report was written to repos.txt as requested.
-
-The existing PostgreSQL verification supplied for this repository is:
-
-- PostgreSQL connection: PASS
-- Table creation: PASS
-- Seed initialization: PASS
-- FastAPI startup: PASS
-- /health: PASS
-- Full PostgreSQL-configured test suite: 202 passed
-
-A. REQUIRED AND COMPLETE
-
-1. Books
-
-Complete and covered by tests/test_books.py:
-
-- Book creation returns the required BookOut fields.
-- Titles and authors are stripped and validated after stripping.
-- Price and stock accept zero and reject negative values.
-- ISBN hyphens and spaces are removed.
-- ISBN-13 shape and checksum are validated.
-- Duplicate normalized ISBNs return 409.
-- Existing books can be retrieved; missing books return 404.
-- PATCH supports partial updates.
-- PATCH fields are validated and persisted.
-- ISBN is not patchable and is silently ignored.
-- Unknown PATCH fields are ignored through Pydantic's default extra-field behavior.
-- Search matches title or author case-insensitively.
-- Restricted filtering works.
-- Inclusive minimum and maximum price filters work.
-- Title and price sorting works in both directions.
-- ID ascending tie-breaking is applied.
-- Pagination validates limit and offset.
-- Pagination total is calculated before limit and offset.
-- Restricted books are represented and used by access rules.
-
-2. Members
-
-Complete and covered by tests/test_members.py:
-
-- Member creation works.
-- Names are stripped and length validated.
-- Emails are stripped, lowercased, and validated.
-- Email uniqueness is case-insensitive after normalization.
-- Duplicate emails return 409.
-- Unknown tiers return 422.
-- All specified tiers are accepted.
-- Created timestamps come from the injected clock.
-- Members can be retrieved.
-- Missing members return 404.
-- Member orders are listed in ID order.
-- Member statistics count paid orders only.
-- Loan statistics count active, overdue, and returned-loan late fees correctly.
-- The exact due-date boundary is handled correctly.
-
-3. Orders
-
-Complete and covered by tests/test_orders.py:
-
-- Request and response shapes match the specification.
-- Order items expose book ID, quantity, unit price, and line total.
-- Internal OrderItem database IDs are not exposed.
-- Empty item lists return 422.
-- Quantity below one returns 422.
-- Duplicate book IDs return 422.
-- Missing members and books return 404.
-- Restricted-book access is checked before stock errors.
-- Stock validation is performed for every item.
-- Stock checks happen before mutations, preserving all-or-nothing behavior.
-- Tier discounts and bulk discounts are calculated.
-- Discount cents are rounded down.
-- Unit prices are frozen at order creation.
-- Stock is reserved at order creation.
-- Payment changes pending to paid without changing stock.
-- Cancellation changes pending to cancelled and restores all reserved stock.
-- Repeated or invalid payment/cancellation attempts return 409.
-- Order transactions use one SQLAlchemy commit for related changes.
-
-4. Loans
-
-Complete and covered by tests/test_loans.py:
-
-- Loan model stores due date, return date, and late fee.
-- Borrowing validates member and book existence.
-- Restricted-book access requires master or supreme.
-- Tier loan limits are enforced.
-- Supreme has no loan limit.
-- Overdue loans block new borrowing.
-- Duplicate active loans for the same book are rejected.
-- Stock decreases on borrowing.
-- Stock is restored on return.
-- Returned loans cannot be returned twice.
-- Late fees use started-day rounding and are capped at current book price.
-- Loan status is computed from the current time.
-- Exactly at due_at remains active.
-- Member loan filtering is supported.
-- Member loan results are ordered by ID.
-
-5. Reports
-
-Complete and covered by tests/test_reports.py:
-
-- Top books report exists.
-- Only paid orders contribute to sales.
-- Pending and cancelled orders are excluded.
-- Books with no paid sales are omitted.
-- Quantities are aggregated across paid order items.
-- Current book titles are returned.
-- Results sort by copies sold descending, then title ascending.
-- Limits default to 5 and accept values from 1 through 50.
-- Invalid limits return 422.
-
-6. Application and API foundation
-
-- FastAPI exposes create_app(init_db=True) and app.
-- Routers are registered at root-level API paths.
-- CORS allows all origins as required by the starter contract.
-- Static frontend is mounted at / after API routes.
-- /health returns the required response.
-- /docs is provided by FastAPI automatically.
-- get_now provides naive UTC time.
-- PostgreSQL is selected through SANCTUM_DATABASE_URL.
-- SQLite remains the default when the environment variable is absent.
-- PostgreSQL URL compatibility uses psycopg v3.
-- The real Supabase PostgreSQL connection, table creation, seed initialization, FastAPI startup, and health endpoint have passed.
-- The full existing suite passes with PostgreSQL configured: 202/202.
-
-B. REQUIRED BUT NEEDS IMPROVEMENT
-
-These are not failing acceptance requirements. They are architectural or production-hardening improvements identified by inspecting the actual design.
-
-1. Database-level numeric checks
-
-Book price_cents and stock, OrderItem quantity, and order monetary fields are validated in application schemas, but the database models do not add CheckConstraint rules. Direct SQL or another writer could insert negative values or invalid totals.
-
-2. Database-level status and tier constraints
-
-Member tier and order status are stored as strings. Python enums and service logic validate normal API paths, but PostgreSQL does not enforce the allowed values through database CHECK constraints or native enum types.
-
-3. Delete behavior
-
-The Order.items relationship has cascade="all, delete-orphan", which is appropriate for dependent order items. Member orders and loans do not define delete cascades, and foreign keys do not specify ondelete behavior. There are currently no delete endpoints, so this is not an active API failure, but the deletion policy should be made explicit before adding deletion operations.
-
-4. Table initialization versus migrations
-
-The application runs Base.metadata.create_all(engine) during startup. This works for a fresh database and passed the PostgreSQL verification, but create_all() is not a schema migration system. The assignment explicitly does not require Alembic at this stage, so this is a production improvement rather than missing assignment work.
-
-5. Seed initialization concurrency
-
-seed_if_empty() checks whether the database has data and then inserts seed rows. Multiple application instances starting simultaneously could race. A one-time deployment seed step or stronger coordination would be more robust for a scaled deployment.
-
-6. Environment-file loading behavior
-
-app/db.py reads the process environment with os.getenv(). It does not automatically parse the local .env file. This is acceptable for deployment providers, which inject environment variables, and for the controlled verification process that loaded .env explicitly. Local developers must either export SANCTUM_DATABASE_URL or use a tool that loads .env.
-
-7. Connection and concurrency hardening
-
-The PostgreSQL integration is verified, but production settings such as pool_pre_ping, pool sizing, connection lifetime, and deployment-specific connection limits should be reviewed for the selected host. Concurrent last-copy order protection is optional under ASSIGNMENT.md and is not counted as missing required work.
-
-C. REQUIRED AND MISSING
-
-Required application behavior missing: none identified. All five feature domains pass their acceptance tests and the full suite passes.
-
-Required submission/deployment work still pending:
-
-1. Public deployment URL
-
-No public deployment URL is present in NOTES.md yet. INSTRUCTIONS.md marks public deployment as required.
-
-2. Final NOTES.md update
-
-NOTES.md still contains stale wording such as no public deployment and older remaining-work statements. It needs to be updated with the current PostgreSQL verification, final 202-test result, selected hosting platform, public URL, and final skipped-work statement.
-
-3. Clean secret handling before commit
-
-.env is currently present as an untracked file and is not ignored by the current .gitignore. It must not be committed. Before submission, remove it from the working tree or add an appropriate ignore rule, while keeping .env.example as the safe template.
-
-4. Commit current changes
-
-The repository has meaningful prior commits, but the latest PostgreSQL compatibility changes and response artifacts are currently uncommitted. They should be reviewed and committed with a real message before submission.
-
-5. Fresh-browser deployment verification
-
-The local application and /health have been verified. The assignment still requires opening the deployed URL in a fresh browser and checking the frontend at / and API docs at /docs.
-
-6. Public repository verification
-
-The repository has a remote and incremental history, but its public visibility and logged-out access should be confirmed before submitting the link.
-
-D. SCHEMA/MODEL REVIEW
-
-Book
-
-Purpose:
-
-Stores the catalog and the current inventory state.
-
-Fields:
-
-- id: integer primary key.
-- title: String(200), required through SQLAlchemy 2.x Mapped[str] inference and Pydantic validation.
-- author: String(200), required.
-- isbn: String(13), unique and indexed.
-- price_cents: integer monetary value.
-- stock: integer inventory count.
-- restricted: boolean access flag.
-
-Assessment:
-
-This is the correct entity for current catalog price and stock. ISBN uniqueness is correctly enforced at the database level. Monetary values use integer cents as required. The model would be stronger with database-level nonnegative checks for price and stock.
-
-Member
-
-Purpose:
-
-Stores members who can purchase and borrow books.
-
-Fields:
-
-- id: integer primary key.
-- name: String(100), required.
-- email: String(320), unique and indexed.
-- tier: String(20), required in the ORM type inference.
-- created_at: DateTime, required.
-
-Relationships:
-
-- orders: one-to-many to Order, ordered by Order.id.
-- loans: one-to-many to Loan, ordered by Loan.id.
-
-Assessment:
-
-The entity correctly owns member identity and tier. Email uniqueness is enforced after schema normalization. Tier is stored as a string rather than a database enum/check constraint, so direct database writes are not protected from invalid tier values. No deletion cascade is specified.
-
-Order
-
-Purpose:
-
-Represents a purchase transaction and its lifecycle.
-
-Fields:
-
-- id: integer primary key.
-- member_id: foreign key to members.id and indexed.
-- status: string lifecycle value.
-- subtotal_cents: integer.
-- discount_percent: integer.
-- discount_cents: integer.
-- total_cents: integer.
-- created_at: DateTime.
-
-Relationships:
-
-- member: many-to-one Member.
-- items: one-to-many OrderItem with order_by=OrderItem.id and delete-orphan cascade.
-
-Assessment:
-
-The aggregate structure is appropriate. Order owns its items, and the cascade matches the dependent nature of order items. The status should ideally have a database constraint or enum. Monetary and discount invariants are enforced in service code, not at the database layer. The member foreign key is correct.
-
-OrderItem
-
-Purpose:
-
-Represents one submitted book line in an order.
-
-Fields:
-
-- id: integer primary key.
-- order_id: foreign key to orders.id and indexed.
-- book_id: foreign key to books.id and indexed.
-- quantity: integer.
-- unit_price_cents: integer snapshot.
-
-Relationships:
-
-- order: many-to-one Order.
-- book: many-to-one Book.
-
-Computed property:
-
-- line_total_cents = unit_price_cents * quantity.
-
-Assessment:
-
-This is correctly modeled as a separate table rather than an embedded JSON array. unit_price_cents correctly preserves the historical order price after a book price changes. The API response intentionally excludes the internal OrderItem id. A database CHECK constraint for quantity >= 1 and nonnegative unit price would strengthen integrity. The current domain intentionally uses the current Book title for reports instead of snapshotting the title.
-
-Loan
-
-Purpose:
-
-Represents one borrowing transaction for one book and member.
-
-Fields:
-
-- id: integer primary key.
-- member_id: foreign key to members.id and indexed.
-- book_id: foreign key to books.id and indexed.
-- borrowed_at: required DateTime.
-- due_at: required DateTime.
-- returned_at: nullable DateTime.
-- late_fee_cents: integer defaulting to zero.
-
-Relationships:
-
-- member: many-to-one Member.
-- book: many-to-one Book.
-
-Assessment:
-
-The model correctly represents borrowing and return state without storing a redundant status column. Status is derived from returned_at and the current clock, so it cannot become stale. The late fee is persisted because it is a historical charge. Stock belongs to Book because it represents current inventory shared by sales and loans. A database check for nonnegative late fees and explicit nullable/default declarations would strengthen the model. Concurrent last-copy protection is not implemented, but it is explicitly optional in the assignment.
-
-Primary keys and foreign keys
-
-All domain tables have integer primary keys. Relationships use foreign keys for Member-to-Order, Order-to-OrderItem, OrderItem-to-Book, Member-to-Loan, and Loan-to-Book. Foreign-key columns are indexed where appropriate.
-
-Unique constraints
-
-Book.isbn and Member.email are unique and indexed. There is no separate uniqueness constraint on active loans or order item book IDs, because the services and request schemas enforce those API rules and the order model allows one line per book by contract.
-
-Nullable columns
-
-The important nullable domain field is Loan.returned_at. Other Mapped non-Optional fields are inferred as non-nullable by SQLAlchemy's 2.x typed declarative mapping. Explicit nullable=False and database checks could improve readability and direct-database protection.
-
-Enums and statuses
-
-Python enums are used for MemberTier and OrderStatus, but model columns store strings. Loan status is intentionally computed rather than stored. PostgreSQL will behave correctly through the normal application path, but database-level status constraints are absent.
-
-PostgreSQL behavior
-
-The schema was created successfully against the real Supabase PostgreSQL database. SQLAlchemy 2.x Mapped declarations, integer money values, foreign keys, indexes, and relationships are PostgreSQL-compatible. The main remaining production concern is schema evolution because create_all() is not migrations.
-
-E. API SCHEMA REVIEW
-
-Book schemas
-
-- BookCreate separates creation input from BookOut.
-- Title and author use stripped bounded string constraints.
-- ISBN is normalized and checksum-validated through a field validator.
-- BookUpdate contains only patchable fields and uses Optional fields with exclude_unset semantics in the service.
-- ISBN and unknown fields are ignored for PATCH because they are not declared and Pydantic defaults to ignoring extra fields.
-- BookOut uses from_attributes=True for ORM serialization.
-- BookPage wraps items with total, limit, and offset.
-
-Member schemas
-
-- MemberCreate separates input from MemberOut.
-- MemberTier validates the allowed tier values.
-- Email normalization occurs before validation and persistence.
-- MemberStats exposes only the specified aggregate fields.
-- MemberOut exposes the public member fields and timestamp.
-
-Order schemas
-
-- OrderItemIn contains only book_id and quantity.
-- quantity >= 1 is validated by Pydantic.
-- OrderCreate requires at least one item and rejects duplicate book IDs with a model validator.
-- OrderItemOut exposes the public item contract and omits the internal database row ID.
-- line_total_cents is supplied through the ORM property.
-- OrderOut contains nested items and all required monetary/status fields.
-
-Loan schemas
-
-- LoanCreate contains only member_id and book_id.
-- LoanOut contains persisted timestamps and late fee plus the computed status returned by the service.
-- Loan status is not stored in the database, preventing stale status values.
-
-Report schemas
-
-- TopBook contains exactly book_id, title, and copies_sold.
-
-Overall schema assessment
-
-The Pydantic layer correctly separates request, update, and response contracts. It keeps internal ORM identifiers out of nested order responses and keeps computed loan status in the service serialization path. Database-level validation is less strict than API-level validation, which is acceptable for the assignment but worth strengthening for systems with other database writers.
-
-F. DEPLOYMENT AND SUBMISSION CHECKLIST
-
-Completed:
-
-- SQLite remains the local default.
-- PostgreSQL works through SANCTUM_DATABASE_URL.
-- The real Supabase connection has passed.
-- Table creation has passed on PostgreSQL.
-- Seed initialization has passed on PostgreSQL.
-- FastAPI startup has passed on PostgreSQL.
-- /health has returned 200.
-- 202/202 tests pass with PostgreSQL configured.
-- Tests use fresh in-memory SQLite and do not depend on a live database.
-- Frontend is mounted at / by app/main.py.
-- /docs is provided by FastAPI.
-- AI usage is documented in NOTES.md.
-- Incremental Git commits exist.
-
-Still required:
-
-- Choose and configure a public host, with Render requiring the fewest unnecessary code changes based on the current architecture.
-- Configure SANCTUM_DATABASE_URL privately on the host.
-- Deploy the application.
-- Verify /, /docs, and /health on the public URL in a fresh browser.
-- Add the live URL and deployment details to the top of NOTES.md.
-- Update stale NOTES.md status and validation text.
-- Ensure .env is not committed and is ignored or removed locally.
-- Review and commit the current PostgreSQL compatibility changes.
-- Confirm the GitHub repository is public and accessible while logged out.
-- Do not commit sanctum.db, .venv, caches, secrets, or temporary response/test artifacts unless intentionally required.
-
-G. OPTIONAL FEATURES
-
-1. Concurrent last-copy order handling
-
-Not complete. No row locking or equivalent concurrency control is present. This is explicitly optional in ASSIGNMENT.md and must not be counted as missing required work.
-
-2. GET /members pagination
-
-Not complete. No paginated GET /members endpoint exists. This is explicitly optional and must not be counted as missing required work.
-
-FINAL COUNTS
-
-Required feature domains complete: 5/5
-
-- Books
-- Members
-- Orders
-- Loans
-- Reports
-
-Required API foundation complete: 1/1
-
-- Health, FastAPI entrypoint, static frontend mount, and API routing
-
-Required acceptance tests passing: 202/202
-
-Required features needing architectural or submission improvement: 6
-
-1. Database-level CHECK constraints for numeric/status/tier invariants.
-2. Explicit delete/ondelete policy for parent-child relationships.
-3. Production migration strategy instead of relying only on create_all().
-4. Seed startup race hardening for multiple instances.
-5. Final deployment and public-URL verification.
-6. Final NOTES.md and secret/working-tree cleanup before submission.
-
-Required application features missing: 0
-
-Optional features complete: 0/2
-
-- Concurrent last-copy protection: optional, not implemented.
-- GET /members pagination: optional, not implemented.
+SANCTUM SANCTORUM ASSIGNMENT - SIMPLE FEATURE SUMMARY
+
+What this assignment is about
+------------------------------
+This is a members-only bookstore and lending library. Members can buy books,
+borrow books, and view reports about the store.
+
+The original project was partly finished. Some basic code existed, but many
+required features were missing or returned errors. The task was to finish the
+backend according to SPEC.md and make the tests pass.
+
+Old features and problems
+-------------------------
+- Books existed, but ISBN checksum validation was incomplete.
+- Duplicate ISBNs could expose a database error instead of a clear 409 response.
+- Book PATCH updates were missing.
+- Book search, filters, sorting, and pagination were incomplete.
+- Member email cleanup and duplicate-email handling were incomplete.
+- Member statistics were not fully implemented.
+- Creating orders returned 501 and order rules were incomplete.
+- Creating loans returned 501 and loan fields and rules were incomplete.
+- The top-books report returned 501.
+- Many tests failed because these features were unfinished.
+
+Updated features now
+--------------------
+Books:
+- Titles and authors are cleaned and validated.
+- ISBN spaces and hyphens are removed and ISBN-13 check digits are validated.
+- Duplicate ISBNs are rejected clearly.
+- Books support partial PATCH updates.
+- Books support search, restricted filtering, price filtering, sorting, and pagination.
+
+Members:
+- Names and emails are cleaned before saving.
+- Emails are converted to lowercase and duplicates are rejected.
+- Member tiers are checked.
+- Orders and member statistics can be viewed.
+
+Orders:
+- Members, books, quantities, and duplicate items are validated.
+- Restricted-book access rules are enforced.
+- Stock is checked before changes, so failed orders do not partially change stock.
+- Tier and bulk discounts are calculated.
+- Prices are saved at purchase time.
+- Orders can be paid or cancelled, and cancellation restores stock.
+
+Loans:
+- Borrowing checks member access, tier limits, overdue loans, duplicate loans,
+  and available stock.
+- Stock decreases on borrowing and returns on return.
+- Loan status can be active, overdue, or returned.
+- Late fees are calculated for overdue returns and capped at book price.
+
+Reports:
+- The top-books report works.
+- Only paid orders count as sales.
+- Quantities are combined and results are sorted and limited correctly.
+
+Application and deployment:
+- FastAPI provides the API, `/health`, and `/docs`.
+- The static frontend is served from `/` and uses the same API.
+- PostgreSQL is supported through `SANCTUM_DATABASE_URL`.
+- SQLite remains available for local development.
+- The application is deployed at https://sanctum-sanctorum-gilt.vercel.app/
+
+Testing status
+--------------
+The focused tests for books, loans, members, orders, and reports pass. The
+repository notes record a full PostgreSQL-configured result of 202 tests passed.
+
+In simple terms, the old project was a partially built bookstore API. The
+updated project now has the required bookstore, member, order, loan, report,
+frontend, database, and deployment functionality.

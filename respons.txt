@@ -1,36 +1,232 @@
-PRE-DEPLOYMENT: READY
+SANCTUM SANCTORUM COMPLETE ASSIGNMENT AUDIT
+===========================================
 
-Final pre-deployment checks:
+Audit scope
+-----------
+Reviewed INSTRUCTIONS.md, ASSIGNMENT.md, SPEC.md, app/, frontend/, tests/,
+pyproject.toml, .gitignore, Git history, and the recorded Vercel deployment.
+This report checks the required application contract and the submission rules.
+No application logic was modified for this audit.
 
-1. .env ignored by Git and not tracked: PASS
-2. .env.example exists and contains no secrets: PASS
-3. sanctum.db, .venv, and __pycache__ ignored: PASS
-4. No credential-pattern matches in tracked files: PASS
-5. Complete test suite: PASS
-   Result: 202 passed, 2 warnings
-6. FastAPI startup with configured PostgreSQL: PASS
-7. /health: PASS
-   Response: {"status":"ok"}
-8. Frontend at /: PASS
-   HTTP 200 and Sanctum Sanctorum frontend title detected.
-9. /docs: PASS
-   HTTP 200 and Swagger content detected.
-10. Render readiness: PASS
+OVERALL RESULT
+--------------
+Required application behavior: COMPLETE.
 
-Render deployment can use the existing project without application code changes:
+Full local test suite: PASS
+- 202 passed
+- 2 dependency deprecation warnings
+- Command used: .venv\Scripts\python.exe -m pytest
 
-Build command:
-    uv sync --frozen --no-dev
+Public deployment checks: PASS
+- https://sanctum-sanctorum-gilt.vercel.app/health -> HTTP 200,
+  {"status":"ok"}
+- https://sanctum-sanctorum-gilt.vercel.app/ -> HTTP 200 frontend
+- https://sanctum-sanctorum-gilt.vercel.app/docs -> HTTP 200 Swagger UI
 
-Start command:
-    uv run uvicorn app.main:app --host 0.0.0.0 --port $PORT
+SPEC.md LINE-BY-LINE IMPLEMENTATION CHECK
+------------------------------------------
 
-Required private environment variable:
-    SANCTUM_DATABASE_URL
+1. Fixed contracts and application structure: PASS
+- Python 3.10+ is declared in pyproject.toml.
+- FastAPI, SQLAlchemy 2.x, Pydantic 2.x, psycopg, and SQLite support are present.
+- app.main exposes create_app(init_db=True) and module-level app.
+- init_db=True creates tables and seeds an empty database during lifespan.
+- init_db=False does not install the lifespan database initialization.
+- API routers are registered at root paths without an /api prefix.
+- frontend/ is mounted at / after the API routers with StaticFiles(html=True).
+- CORS allows all origins, methods, and headers.
+- Base, engine, SessionLocal, and get_db exist in app/db.py.
+- get_now supplies naive UTC time.
+- Business routes that need time receive get_now through FastAPI Depends.
+- Datetimes use normal naive ISO serialization.
+- HTTPException and validation error behavior use FastAPI defaults.
+- NotImplementedError has the required 501 handler.
+- Money uses integer cents.
+- The routers are thin and business rules are in services.
 
-The application already provides app.main:app, serves the frontend from /, creates tables during startup, seeds the database, and includes the psycopg PostgreSQL dependency.
+2. Health endpoint: PASS
+- GET /health returns HTTP 200 and {"status":"ok"}.
 
-One repository hygiene change was required and made:
-- Added .env to .gitignore.
+3. Books: PASS
+- BookOut contains exactly id, title, author, isbn, price_cents, stock, restricted.
+- POST /books returns 201 and BookOut.
+- Title and author whitespace are stripped before length validation.
+- Title and author lengths are restricted to 1 through 200 characters.
+- price_cents and stock must be non-negative.
+- ISBN hyphens and spaces are removed.
+- ISBN must contain exactly 13 digits.
+- ISBN-13 checksum uses alternating weights 1 and 3.
+- ISBN is stored and returned as digits only.
+- Duplicate normalized ISBNs return HTTP 409.
+- GET /books/{id} returns the book or 404.
+- PATCH supports only the declared patchable fields.
+- PATCH applies only fields supplied by the client.
+- PATCH validates values and returns 404 for a missing book.
+- ISBN and unknown PATCH fields are ignored as required by the contract.
+- GET /books supports case-insensitive title/author substring search.
+- Restricted filtering works.
+- Inclusive min_price and max_price filtering works.
+- Valid sort values are title, -title, price, and -price.
+- Invalid sort values, including id, are rejected by the Literal type.
+- Sort ties use ascending book id.
+- Default ordering is ascending book id.
+- limit defaults to 20 and is restricted to 1 through 100.
+- offset defaults to 0 and cannot be negative.
+- total is calculated before limit and offset.
+- Book response pagination fields are items, total, limit, and offset.
+- Mixed-case ordering is database-dependent as allowed by the spec.
 
-No deployment was performed.
+4. Members: PASS
+- Member tiers exist in the required order: apprentice, adept, master, supreme.
+- MemberOut contains the required fields.
+- POST /members returns 201.
+- Names are stripped and limited to 1 through 100 characters.
+- Emails are stripped and lowercased.
+- Email format follows the required basic pattern.
+- Unknown tiers return validation error 422.
+- Duplicate normalized emails return HTTP 409.
+- created_at comes from get_now.
+- GET /members/{id} returns the member or 404.
+- GET /members/{id}/orders returns orders ordered by id ascending.
+- Missing members return 404.
+- GET /members/{id}/stats returns the required statistics or 404.
+- Paid-order count and spending include only paid orders.
+- Active loans include all unreturned loans, including overdue loans.
+- Overdue loans use the strict now > due_at rule.
+- Late fees include returned loans only.
+
+5. Orders: PASS
+- OrderOut exposes exactly the required public fields.
+- Nested order items omit the internal item id.
+- Items preserve submitted order.
+- POST /orders returns 201 with pending status.
+- Empty items return 422.
+- Quantity below 1 returns 422.
+- Duplicate book ids return 422.
+- Missing member returns 404.
+- Missing book returns 404.
+- Restricted access is checked before stock failure.
+- Insufficient stock returns 409.
+- All stock checks happen before stock mutation.
+- Failed orders do not create an order or partially change stock.
+- Stock is reserved at order creation.
+- Unit prices are snapshotted at order creation.
+- Line totals, subtotal, discount, and total are calculated in cents.
+- Tier discounts are 0%, 5%, 10%, and 15%.
+- Bulk discount adds 5% at total quantity 10 or more.
+- Discount cents use floor division as required.
+- GET /orders/{id} returns the order or 404.
+- Paying changes pending to paid and leaves stock unchanged.
+- Paying any other status returns 409.
+- Cancelling changes pending to cancelled and restores stock.
+- Cancelling any other status returns 409.
+- Related stock/order changes are committed together.
+
+6. Loans: PASS
+- LoanOut contains the required fields.
+- Loan status is computed at read time.
+- Returned status takes priority over overdue status.
+- Exactly due_at is active, not overdue, and has no late fee.
+- Tier loan limits are apprentice 1, adept 3, master 5, supreme unlimited.
+- POST /loans returns 201.
+- Member existence is checked before book existence.
+- Missing member/book return 404.
+- Restricted books require master or supreme.
+- Existing overdue loans block new borrowing.
+- An active duplicate book loan is rejected.
+- Tier loan limits are enforced.
+- Zero stock is rejected.
+- Successful borrowing sets now, now + 14 days, null returned_at, and zero fee.
+- Borrowing decrements stock.
+- GET /loans/{id} returns the computed loan or 404.
+- Returning a missing loan returns 404.
+- Returning twice returns 409.
+- Returning sets returned_at to now and restores stock.
+- Late days use ceiling, so every partial day counts.
+- Late fees are 25 cents per started late day.
+- Late fees are capped at the book price at return time.
+- Member loan listing supports active, overdue, and returned computed filters.
+- Invalid loan status values return 422.
+- Member loan results are ordered by id ascending.
+
+7. Reports: PASS
+- GET /reports/top-books exists with default limit 5.
+- limit must be 1 through 50.
+- Only paid orders contribute to copies_sold.
+- Pending and cancelled orders are excluded.
+- Books with no paid sales are excluded.
+- Quantities are summed across paid order items.
+- Current book titles are returned.
+- Results sort by copies sold descending, then title ascending.
+- The requested limit is applied.
+
+8. Frontend: PASS
+- frontend/index.html, app.js, and styles.css exist.
+- The frontend is served from the FastAPI root mount.
+- The frontend uses same-origin relative API URLs.
+- It includes catalog/book creation and updates, members, cart/orders,
+  loans, and reports workflows matching the API routes.
+
+9. Database and deployment behavior: PASS WITH OPERATIONAL CAVEATS
+- SANCTUM_DATABASE_URL selects PostgreSQL when supplied.
+- postgres:// and postgresql:// URLs are converted to the psycopg SQLAlchemy dialect.
+- SQLite is the local default when the environment variable is absent.
+- psycopg[binary] is declared in pyproject.toml.
+- The Vercel deployment is reachable and uses the existing app.main:app entrypoint.
+- No api/index.py or legacy Vercel adapter is needed.
+- No vercel.json is needed for the current deployment.
+- SQLite storage is not suitable as production storage on serverless Vercel;
+  production must use PostgreSQL through SANCTUM_DATABASE_URL.
+- create_all() is startup initialization, not a migration system.
+- Seed initialization can theoretically race if multiple cold starts happen
+  simultaneously. This is not a required acceptance failure.
+- Concurrent last-copy order protection is not implemented; it is explicitly optional.
+
+ASSIGNMENT.md CHECK
+-------------------
+PASS:
+- The required feature order/domains are all implemented: books, members,
+  orders, loans, member stats, and reports.
+- The tests were not modified for the implementation work.
+- Business logic is in services and routers are thin.
+- Order data integrity is protected by checking all stock before mutation.
+- The full test suite passes.
+- A public deployment exists.
+- The optional concurrent last-copy protection is not implemented, as allowed.
+- The optional paginated GET /members endpoint is not implemented, as allowed.
+
+INSTRUCTIONS.md SUBMISSION CHECK
+---------------------------------
+PASS:
+- Incremental Git history exists with meaningful commits.
+- Recent commits cover books/loans, members/orders, reports, PostgreSQL,
+  and deployment work.
+- No .env, database, virtual environment, cache, or pyc files are tracked.
+- The public Vercel URL is reachable.
+- The local test suite passes without an external service.
+- The app entrypoint and frontend are working in deployment.
+- AI usage is documented in NOTES.md.
+- Git remote is configured as:
+  https://github.com/BHAVISHYA6/Sanctum-Sanctorum.git
+
+NEEDS ATTENTION BEFORE SUBMISSION
+---------------------------------
+1. NOTES.md is stale. It starts with the Vercel URL, but then says no public
+   deployment is available and says reports, full-suite verification, and
+   deployment are still remaining. Those statements should be updated before
+   submission so the documentation matches the verified state.
+2. The instructions ask the author to confirm the GitHub repository is public
+   by opening it while logged out. This audit confirmed the remote URL exists,
+   but did not independently confirm GitHub visibility while logged out.
+3. The instructions ask the author to open the deployed URL in a fresh browser.
+   HTTP checks passed here, but a human should still perform that final browser
+   click-through check.
+4. The two dependency warnings are not application failures, but the test
+   dependency stack could be refreshed later.
+
+FINAL VERDICT
+-------------
+Every required line of SPEC.md is implemented and verified by the code audit
+and the 202 passing tests. The required application is complete. The only
+remaining work is submission hygiene: update stale NOTES.md wording and make
+sure the repository-public and fresh-browser checks are personally confirmed.
