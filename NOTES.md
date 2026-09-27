@@ -74,7 +74,7 @@ Full suite result:
 202 passed, 2 warnings
 ```
 
-Both warnings are just deprecation notices from the FastAPI/Starlette test stack itself —
+Both warnings are just deprecation notices from the FastAPI/Starlette test stack itself
 nothing in the application is failing. As of this write-up, I don't have any tests actually
 failing; everything in the supplied acceptance suite is green.
 
@@ -82,7 +82,7 @@ failing; everything in the supplied acceptance suite is green.
 
 These go beyond what the supplied test suite requires, but I think they'd matter a lot before
 calling this production-ready. I'm splitting them into "things that are basically un-tested
-gaps in coverage" versus "known, accepted limitations" — see the note at the bottom on the last
+gaps in coverage" versus "known, accepted limitations"  see the note at the bottom on the last
 category.
 
 **Auth and identity**
@@ -104,9 +104,9 @@ category.
 - Two concurrent orders for the last copy shouldn't both succeed
 - A DB error mid-order-creation should roll back every stock change and the order row, not leave
   things half-applied
-- Same idea for loan creation — a DB error should roll back both the loan and the stock
+- Same idea for loan creation a DB error should roll back both the loan and the stock
   decrement together
-- Same for returns — roll back the return and the stock increment together
+- Same for returns  roll back the return and the stock increment together
 - Cancelling an order whose book was later deleted needs an explicit, defined policy rather than
   quietly skipping stock restoration
 
@@ -116,13 +116,13 @@ category.
 - Static assets and API routes should both work cleanly from a fresh browser session
 - Preview and production deployments should each be pointed at the right `SANCTUM_DATABASE_URL`
 
-A couple of these overlap with known, accepted limitations rather than bugs — specifically the
+A couple of these overlap with known, accepted limitations rather than bugs specifically the
 concurrent last-copy race and the lack of a paginated `GET /members` endpoint. Both are
 explicitly optional per `ASSIGNMENT.md`, so I didn't build them, but I've kept them here since
 they're exactly the kind of thing the test list above would catch if priorities shift.
 
 The app also doesn't do real user authentication or staff authorization anywhere. The assignment
-works off a client-selected member ID and never defines passwords, sessions, tokens, or roles —
+works off a client-selected member ID and never defines passwords, sessions, tokens, or roles 
 so for anything resembling a real product, book creation/editing and member actions would need
 proper server-side auth rather than trusting whatever ID the client sends.
 
@@ -139,7 +139,7 @@ directly.
 login or staff roles.
 *Fix:* for the demo, just hide/disable these controls until a member is selected. For anything
 real, add server-side auth and require a staff role on both `POST /books` and
-`PATCH /books/{id}` — hiding UI elements alone isn't a security boundary.
+`PATCH /books/{id}`  hiding UI elements alone isn't a security boundary.
 
 **Member selection isn't real authentication.** The frontend stores a member ID in
 `localStorage` and sends it along with orders/loans. The API trusts whatever ID shows up, so
@@ -150,15 +150,15 @@ concept.
 client-supplied ID.
 
 **Member verification fails open on server errors.** If the member lookup call errors out, the
-frontend can end up continuing on as if that ID were valid anyway — not great, even though the
+frontend can end up continuing on as if that ID were valid anyway not great, even though the
 backend would likely reject the request downstream.
 *Scope:* resilience/hardening issue, beyond the assignment.
-*Fix:* fail closed — clear member state and require a successful lookup before allowing any
+*Fix:* fail closed clear member state and require a successful lookup before allowing any
 member action.
 
 **`b@m.com` passes validation, and that's intentional.** The validator follows `SPEC.md`'s exact
 regex (`^[^@\s]+@[^@\s]+\.[^@\s]+$`), which does let this through. Not a bug against the spec as
-written — just worth flagging if the product wants tighter rules later.
+written just worth flagging if the product wants tighter rules later.
 *Scope:* out of scope unless stricter validation gets explicitly requested.
 *Fix:* nail down the desired policy first, write tests for it, then change the validator on
 purpose rather than quietly tightening it and risking a contract break.
@@ -173,7 +173,7 @@ count.
 
 Kept to the layered structure the assignment asked for:
 
-- Routers handle HTTP concerns — input parsing, dependencies, response models, status codes
+- Routers handle HTTP concerns input parsing, dependencies, response models, status codes
 - Pydantic schemas own shape, normalization, and field-level validation
 - Services hold the business rules, queries, transaction boundaries, and domain errors
 - SQLAlchemy models represent persisted state and relationships
@@ -184,7 +184,7 @@ A few decisions worth explaining:
 
 1. **Validation lives in schemas, integrity handling lives in services.** ISBN and email
    normalization happen up front. The database's uniqueness constraints are still the final
-   safety net — expected `IntegrityError`s get caught, rolled back, and turned into stable 409s.
+   safety net expected `IntegrityError`s get caught, rolled back, and turned into stable 409s.
 
 2. **Orders are all-or-nothing.** Every member/book/access/stock check happens before any stock
    or order data actually changes. Stock reservation and order-item creation commit together, so
@@ -218,7 +218,7 @@ A few decisions worth explaining:
   `app/main.py` and a plain `app` instance.
 - SQLite stays for local tests; production uses PostgreSQL since serverless local disk isn't
   persistent or shared.
-- Concurrent last-copy protection remains a known, optional gap — row locking or an atomic
+- Concurrent last-copy protection remains a known, optional gap row locking or an atomic
   conditional update would be the next step if it's prioritized.
 - There's no authentication contract in the assignment at all. The member selector works fine
   for the demo but shouldn't be mistaken for real login in an actual product.
@@ -240,7 +240,7 @@ draft deployment/submission notes.
 
 Everything it suggested got checked against the actual source and tests rather than taken at
 face value. One place it wasn't helpful: it initially assumed commands could be run from the
-parent workspace directory and that `uv` was available in the active PowerShell session — neither
+parent workspace directory and that `uv` was available in the active PowerShell session neither
 was true, so I just used the repo's existing `.venv` and the correct working directory directly.
-Final calls — like the all-or-nothing order updates and the strict loan due-date boundary — were
+Final calls like the all-or-nothing order updates and the strict loan due-date boundary were
 checked against the spec myself rather than taken from the AI's suggestions as-is.
