@@ -6,7 +6,7 @@ __pycache__/
 *.db
 .DS_Store
 .ruff_cache/
-.Learnings.md
+.LEARNINGS.md
 .repos.txt
 .respons.txt
 .loophole.md
